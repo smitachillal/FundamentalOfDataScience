@@ -1,0 +1,701 @@
+---
+title: "MA7419 Fundamental Of Data Science - Coursework 2, 2025/26 , Group 44"
+output: html_document
+date: "2025-11-24"
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(scales)
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title    = element_text(face = "bold", size = 18),
+      plot.subtitle = element_text(size = 12),
+      panel.grid.minor = element_blank(),
+      legend.position  = "bottom"
+    )
+)
+
+
+```
+
+---
+
+## Research Questions
+
+- **RQ1:** How have Brazil's CO₂ emissions per capita changed over time, and how do they compare to the global average?  
+  *Approach:* Trend plots + t-test.
+
+- **RQ2:** How dependent is Brazil on different electricity sources (coal, solar, wind, hydro), and how are these related to its CO₂ emissions?  
+  *Approach:* Correlation analysis + ANOVA + line charts.
+
+- **RQ3:** Has Brazil’s CO₂ emission pattern changed significantly before and after the year 2000?  
+  *Approach:* Before/after plot + chi-square test.
+
+- **RQ4:** How have Brazil’s CO₂ emissions and renewables changed relative to India and the USA?  
+  *Approach:* Comparison plots (Brazil, India, USA).
+  
+- **RQ5:** How do Brazil’s renewable energy investments compare to other BRICS nations?
+  *Approach:* comparative multi-country statistical and visual analytics
+---
+
+# 1. Load datasets
+
+```{r}
+co2 <- read_csv(
+("https://raw.githubusercontent.com/owid/co2-data/master/owid-co2-data.csv"),
+show_col_types = FALSE
+)
+
+energy <- read_csv(
+("https://raw.githubusercontent.com/owid/energy-data/master/owid-energy-data.csv"),
+show_col_types = FALSE
+)
+
+colnames(co2)
+colnames(energy)
+
+```
+```{r}
+co2_clean <- co2 %>%
+  rename(country = country, year = year) %>%
+  filter(!is.na(year))
+
+co2_use <- co2_clean %>%
+  select(country, year, co2, co2_per_capita, land_use_change_co2)
+
+energy_clean <- energy %>%
+  rename(country = country, year = year) %>%
+  filter(!is.na(year))
+
+energy_use <- energy_clean %>%
+  select(
+    country, year,
+    solar_electricity, wind_electricity, hydro_electricity,
+    nuclear_electricity, coal_electricity, gas_electricity, oil_electricity
+  )
+
+merged_all <- inner_join(
+  co2_use,
+  energy_use,
+  by = c("country", "year")
+)
+
+countries_focus <- c("Brazil", "India", "United States")
+merged_focus <- merged_all %>% filter(country %in% countries_focus)
+
+merged_brazil <- merged_all %>% filter(country == "Brazil")
+
+
+global_data <- merged_all %>%
+  group_by(year) %>%
+  summarise(
+    global_co2_per_capita = mean(co2_per_capita, na.rm = TRUE),
+    global_renewables = mean(solar_electricity + wind_electricity + hydro_electricity, na.rm = TRUE)
+  )
+
+```
+#RQ1 – Brazil’s CO₂ per capita over time vs global
+
+```{r}
+brazil_global <- merged_brazil %>%
+  left_join(
+    global_data %>%
+      select(year, global_co2_per_capita),
+    by = "year"
+  ) %>%
+  drop_na(co2_per_capita, global_co2_per_capita)
+
+last_row <- brazil_global %>%
+  filter(year == max(year, na.rm = TRUE))
+
+ggplot(brazil_global, aes(x = year)) +
+  geom_ribbon(aes(ymin = pmin(co2_per_capita, global_co2_per_capita),
+                  ymax = pmax(co2_per_capita, global_co2_per_capita)),
+              fill = "#1b4332", alpha = 0.4) +
+  
+  geom_line(aes(y = global_co2_per_capita, colour = "Global average"),
+            linewidth = 1.1, linetype = "dashed", alpha = 0.9) +
+  
+  geom_line(aes(y = co2_per_capita, colour = "Brazil"),
+            linewidth = 1.6) +
+  
+  geom_point(data = last_row,
+             aes(y = co2_per_capita, colour = "Brazil"),
+             size = 3) +
+  geom_point(data = last_row,
+             aes(y = global_co2_per_capita, colour = "Global average"),
+             size = 3) +
+  
+  geom_text(
+    data = last_row,
+    aes(y = co2_per_capita,
+        label = sprintf("Brazil: %.2f", co2_per_capita)),
+    hjust = -0.1, vjust = -0.5, size = 3.5, colour = "#52ffb8"
+  ) +
+  geom_text(
+    data = last_row,
+    aes(y = global_co2_per_capita,
+        label = sprintf("Global: %.2f", global_co2_per_capita)),
+    hjust = -0.1, vjust = 1.2, size = 3.5, colour = "grey80"
+  ) +
+  
+  scale_colour_manual(
+    values = c(
+      "Brazil"         = "#52ffb8",  # neon green
+      "Global average" = "#ffdd57"   # warm yellow
+    )
+  ) +
+  scale_x_continuous(breaks = scales::pretty_breaks(8)) +
+  
+  labs(
+    title    = "Brazil vs Global CO₂ Emissions per Capita",
+    subtitle = "Dark-mode view • Brazil's per-person emissions vs world average",
+    x        = "Year",
+    y        = "CO₂ per capita (tonnes)",
+    colour   = ""
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.background  = element_rect(fill = "#081018", colour = NA),
+    panel.background = element_rect(fill = "#081018", colour = NA),
+    panel.grid.major = element_line(colour = "#1f2933"),
+    panel.grid.minor = element_blank(),
+    text             = element_text(colour = "grey90"),
+    axis.text        = element_text(colour = "grey80"),
+    axis.title       = element_text(colour = "grey90"),
+    plot.title       = element_text(colour = "white", face = "bold", size = 18),
+    plot.subtitle    = element_text(colour = "grey80"),
+    legend.background= element_rect(fill = "#081018", colour = NA),
+    legend.key       = element_rect(fill = "#081018", colour = NA),
+    legend.position  = "top"
+  ) +
+  coord_cartesian(clip = "off")
+
+```
+#Decadal averages bar chart
+
+```{r}
+
+brazil_decade <- brazil_global %>%
+  mutate(decade = floor(year / 10) * 10) %>%
+  group_by(decade) %>%
+  summarise(
+    brazil_mean = mean(co2_per_capita,         na.rm = TRUE),
+    global_mean = mean(global_co2_per_capita,  na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols      = c(brazil_mean, global_mean),
+    names_to  = "series",
+    values_to = "value"
+  ) %>%
+  mutate(
+    series = recode(series,
+                    "brazil_mean" = "Brazil",
+                    "global_mean" = "Global")
+  )
+
+ggplot(brazil_decade,
+       aes(x = factor(decade), y = value, fill = series)) +
+  
+  geom_col(position = position_dodge(width = 0.7), width = 0.55,
+           colour = "white", alpha = 0.9) +
+  
+  geom_text(aes(label = sprintf("%.2f", value)),
+            position = position_dodge(width = 0.7),
+            vjust = -0.6, size = 3.8, colour = "white") +
+  
+  
+  
+  labs(
+    title    = "Decadal Average CO₂ Emissions per Capita",
+    subtitle = "Brazil vs Global Comparison Across Decades",
+    x        = "Decade",
+    y        = "Average CO₂ per Capita (tonnes)",
+    fill     = ""
+  ) +
+
+  expand_limits(y = max(brazil_decade$value) * 1.15) +
+
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.background  = element_rect(fill = "#081018", colour = NA),
+    panel.background = element_rect(fill = "#081018", colour = NA),
+    panel.grid.major = element_line(colour = "#1f2933"),
+    panel.grid.minor = element_blank(),
+    axis.text        = element_text(colour = "grey80"),
+    axis.title       = element_text(colour = "white"),
+    plot.title       = element_text(colour = "white", size = 18, face = "bold"),
+    plot.subtitle    = element_text(colour = "grey80"),
+    legend.position  = "top",
+    legend.text      = element_text(colour = "white"),
+    legend.background= element_rect(fill = "#081018", colour = NA)
+  )
+
+
+
+```
+
+#RQ2 – Hydropower dependence vs other renewables
+#a) Trend lines: Hydro vs Solar vs Wind
+# Heatmap of renewables by decade – “energy intensity grid”
+
+```{r}
+
+brazil_renew <- energy %>%
+  filter(country == "Brazil") %>%
+  transmute(
+    year,
+    solar = solar_electricity,
+    wind  = wind_electricity,
+    hydro = hydro_electricity
+  ) %>%
+  pivot_longer(
+    cols      = -year,
+    names_to  = "source",
+    values_to = "value"
+  ) %>%
+  filter(!is.na(value))
+
+
+brazil_renew_decade <- brazil_renew %>%
+  mutate(decade = floor(year / 10) * 10) %>%
+  group_by(decade, source) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    .groups    = "drop"
+  )
+
+ggplot(brazil_renew_decade, aes(x = factor(decade), y = source, fill = mean_value)) +
+  geom_tile(color = "#2C2C2C", linewidth = 0.6) +
+  
+  scale_fill_gradient(
+    low  = "#1B2631",   
+    high = "#85C1E9",   
+    name = "Avg TWh"
+  ) +
+  
+  labs(
+    title = "Brazil Renewable Electricity by Decade",
+    subtitle = "Hydro dominates earlier decades; wind and solar rise after 2000",
+    x = "Decade",
+    y = "Energy Source"
+  ) +
+  
+  # DARK THEME
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.background   = element_rect(fill = "#121212", color = NA),
+    panel.background  = element_rect(fill = "#121212", color = NA),
+    legend.background = element_rect(fill = "#121212", color = NA),
+    legend.key        = element_rect(fill = "#121212", color = NA),
+    
+    axis.text         = element_text(color = "white"),
+    axis.title        = element_text(color = "white"),
+    
+    plot.title        = element_text(color = "white", face = "bold", size = 18),
+    plot.subtitle     = element_text(color = "grey80", size = 12),
+    
+    legend.title      = element_text(color = "white"),
+    legend.text       = element_text(color = "white"),
+    
+    panel.grid        = element_blank()
+  )
+
+```
+
+
+
+#b) ANOVA: mean output differences between sources
+
+```{r}
+anova_brazil <- aov(value ~ source, data = brazil_renew)
+summary(anova_brazil)
+
+```
+#c) Correlation: Hydro vs Other Renewables (Solar + Wind)
+
+```{r}
+brazil_renew_corr <- merged_brazil %>%
+  transmute(
+    year,
+    hydro        = hydro_electricity,
+    other_renew  = solar_electricity + wind_electricity
+  ) %>%
+  drop_na(hydro, other_renew)
+
+cor.test(brazil_renew_corr$hydro, brazil_renew_corr$other_renew)
+
+
+```
+#🌳 RQ3 – “Deforestation” trend via land-use change CO₂ (before vs after 2000)
+#a) Trend graph (with 2000 marked)
+
+```{r brazil_luc_data}
+brazil_luc <- co2 %>%
+  filter(country == "Brazil") %>%
+  select(year, land_use_change_co2) %>%
+  filter(!is.na(land_use_change_co2))
+
+theme_dark_glow <- theme_minimal(base_size = 14) +
+  theme(
+    plot.background   = element_rect(fill = "#0D0D0D", color = NA),
+    panel.background  = element_rect(fill = "#0D0D0D", color = NA),
+    panel.grid.major  = element_line(color = "#2A2A2A", size = 0.3),
+    panel.grid.minor  = element_blank(),
+
+    axis.text         = element_text(color = "grey85", size = 13),
+    axis.title        = element_text(color = "white", size = 14, face = "bold"),
+
+    plot.title        = element_text(color = "white", face = "bold", size = 20),
+    plot.subtitle     = element_text(color = "grey80", size = 13),
+    plot.caption      = element_text(color = "grey60", size = 10),
+  )
+
+ggplot(brazil_luc, aes(x = year, y = land_use_change_co2)) +
+
+  geom_line(color = "#FF3B3B40", linewidth = 5, alpha = 0.35) +
+
+  geom_line(color = "#FF5252", linewidth = 1.6) +
+
+  geom_smooth(color = "#FFA07A", linewidth = 1.2, se = FALSE, span = 0.3) +
+
+  annotate("rect",
+           xmin = 1995, xmax = 2010,
+           ymin = -Inf, ymax = Inf,
+           alpha = 0.05, fill = "#FF0000") +
+  annotate("text",
+           x = 2002, y = max(brazil_luc$land_use_change_co2, na.rm = TRUE),
+           label = "High Deforestation Period", 
+           color = "red", size = 4, fontface = "bold") +
+
+  labs(
+    title    = "Brazil Land-Use Change CO₂ Emissions",
+    subtitle = "Deforestation and land-use change emissions highlighted with trend smoothing",
+    x        = "Year",
+    y        = "Land-use CO₂ (million tonnes)",
+    caption  = "Source: OWID CO₂ Dataset"
+  ) +
+  theme_dark_glow
+
+```
+#b) Chi-square: Before vs After 2000 (High vs Low deforestation emissions)
+```{r}
+
+brazil_luc_period <- brazil_luc %>%
+  mutate(
+    period   = ifelse(year < 2000, "Before 2000", "After 2000"),
+    category = ifelse(
+      land_use_change_co2 > median(land_use_change_co2, na.rm = TRUE),
+      "High", "Low"
+    )
+  )
+
+luc_tab <- table(brazil_luc_period$period, brazil_luc_period$category)
+luc_tab
+
+chi_sq_luc <- chisq.test(luc_tab)
+chi_sq_luc
+```
+
+#🌐 RQ4 – Brazil vs India vs USA: CO₂ & renewables
+#a) CO₂ per capita comparison
+```{r co2_compare_dark_facet}
+
+compare_countries <- c("Brazil", "India", "United States")
+
+co2_compare <- co2 %>%
+  filter(country %in% compare_countries) %>%
+  select(country, year, co2_per_capita) %>%
+  filter(!is.na(co2_per_capita))
+
+theme_dark_custom <- theme_minimal(base_size = 14) +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", colour = NA),
+    panel.background = element_rect(fill = "#0d1117", colour = NA),
+    panel.grid.major = element_line(colour = "#2d333b"),
+    panel.grid.minor = element_blank(),
+    axis.text        = element_text(colour = "grey85"),
+    axis.title       = element_text(colour = "grey90"),
+    strip.background = element_rect(fill = "#161b22", colour = NA),
+    strip.text       = element_text(colour = "grey90", face = "bold"),
+    plot.title       = element_text(colour = "white", face = "bold", size = 20),
+    plot.subtitle    = element_text(colour = "grey80"),
+    legend.background = element_rect(fill = "#0d1117"),
+    legend.key       = element_rect(fill = "#0d1117"),
+    legend.text      = element_text(colour = "grey85"),
+    legend.title     = element_text(colour = "white")
+  )
+
+ggplot(co2_compare, aes(x = year, y = co2_per_capita, colour = country)) +
+  geom_line(linewidth = 1.3) +
+  facet_wrap(~ country, scales = "free_y") +
+  scale_colour_manual(values = c(
+    "Brazil"         = "#00e676",  
+    "India"          = "#ffa726",  
+    "United States"  = "#42a5f5"  
+  )) +
+  labs(
+    title    = "Country-wise CO₂ Emissions per Capita",
+    subtitle = "Brazil, India and the United States",
+    x        = "Year",
+    y        = "CO₂ per capita (tonnes)"
+  ) +
+  theme_dark_custom +
+  theme(legend.position = "none")
+
+```
+
+#b) Renewable electricity comparison (solar + wind + hydro)
+```{r renew_compare_boxplot, message=FALSE, warning=FALSE}
+
+compare_countries <- c("Brazil", "India", "United States")
+
+renew_compare <- energy %>%
+  filter(country %in% compare_countries) %>%
+  mutate(
+    Entity     = country,
+    Year       = year,
+    renewables = solar_electricity + wind_electricity + hydro_electricity
+  ) %>%
+  select(Entity, Year, renewables) %>%
+  filter(!is.na(renewables))
+
+renew_compare <- renew_compare %>%
+  mutate(Entity = reorder(Entity, renewables, FUN = median, decreasing = TRUE))
+
+theme_dark_custom <- theme_minimal(base_size = 12) +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", colour = NA),
+    panel.background = element_rect(fill = "#0d1117", colour = NA),
+    panel.grid.major = element_line(colour = "#2d333b"),
+    panel.grid.minor = element_blank(),
+    axis.text        = element_text(colour = "grey85"),
+    axis.title       = element_text(colour = "grey90"),
+    plot.title       = element_text(colour = "white", face = "bold", size = 15),
+    plot.subtitle    = element_text(colour = "grey80"),
+    legend.background = element_rect(fill = "#0d1117"),
+    legend.key       = element_rect(fill = "#0d1117"),
+    legend.text      = element_text(colour = "grey85"),
+    legend.title     = element_text(colour = "white")
+  )
+
+ggplot(renew_compare, aes(x = Entity, y = renewables, fill = Entity)) +
+  geom_violin(alpha = 0.45, colour = NA, width = 0.7) +
+  
+  geom_boxplot(
+    width = 0.25,
+    alpha = 0.8,
+    outlier.shape = NA,
+    colour = "grey95",
+    linewidth = 0.4
+  ) +
+  
+  geom_jitter(
+    width  = 0.15,
+    alpha  = 0.9,
+    colour = "white",
+    size   = 1.5
+  ) +
+  
+  scale_fill_manual(values = c(
+    "Brazil"        = "#00e676",  # neon green
+    "India"         = "#ffa726",  # warm orange
+    "United States" = "#42a5f5"   # soft blue
+  )) +
+  
+  scale_y_continuous(labels = comma) +
+  
+  labs(
+    title    = "Renewable Electricity (TWh): Brazil vs India vs USA",
+    subtitle = "Solar + wind + hydro – distribution across years (violin + boxplot + white points)",
+    x        = "Country",
+    y        = "Renewable Electricity (TWh)",
+    fill     = "Country"
+  ) +
+  theme_dark_custom +
+  theme(legend.position = "none")
+
+
+```
+```{r brics_renewables_analysis, message=FALSE, warning=FALSE}
+
+#  Focus on BRICS countries --------------------------------------------
+brics <- c("Brazil", "Russia", "India", "China", "South Africa")
+
+brics_energy <- energy %>%
+  filter(country %in% brics) %>%
+  # Robust renewables TWh variable:
+  mutate(
+    renewables_twh = case_when(
+      !is.na(renewables_electricity) ~ renewables_electricity,
+      TRUE ~ coalesce(
+        solar_electricity, 0
+      ) + coalesce(
+        wind_electricity, 0
+      ) + coalesce(
+        hydro_electricity, 0
+      )
+    )
+  ) %>%
+  filter(!is.na(year))
+
+#  Summary table: latest year for each BRICS country -------------------
+summary_latest <- brics_energy %>%
+  # Keep only years where renewables_share_energy isn't NA
+  filter(!is.na(renewables_share_energy)) %>%
+  group_by(country) %>%
+  slice_max(year, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(
+    country,
+    year,
+    renewables_share_energy,
+    renewables_twh,
+    primary_energy_consumption
+  ) %>%
+  arrange(desc(renewables_share_energy))
+
+cat("\n=== Latest Available Renewables Snapshot (BRICS) ===\n")
+print(
+  summary_latest %>%
+    mutate(
+      renewables_share_energy = round(renewables_share_energy, 1),
+      renewables_twh          = round(renewables_twh, 1),
+      primary_energy_consumption = round(primary_energy_consumption, 1)
+    )
+)
+
+#  Decade-level summary for heatmap ------------------------------------
+brics_decade <- brics_energy %>%
+  mutate(decade = floor(year / 10) * 10) %>%
+  group_by(country, decade) %>%
+  summarise(
+    renewables_share_mean = mean(renewables_share_energy, na.rm = TRUE),
+    renewables_twh_mean   = mean(renewables_twh, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(renewables_share_mean))
+
+cat("\n=== Decade-Average Renewables Share (BRICS) ===\n")
+print(
+  brics_decade %>%
+    arrange(country, decade) %>%
+    mutate(
+      renewables_share_mean = round(renewables_share_mean, 1),
+      renewables_twh_mean   = round(renewables_twh_mean, 1)
+    )
+)
+
+#  Line plot: renewables share over time (BRICS) -----------------------
+
+theme_brics_dark <- theme_minimal(base_size = 14) +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", colour = NA),
+    panel.background = element_rect(fill = "#0d1117", colour = NA),
+    panel.grid.major = element_line(colour = "#2d333b"),
+    panel.grid.minor = element_blank(),
+    axis.text        = element_text(colour = "grey85"),
+    axis.title       = element_text(colour = "grey90"),
+    strip.background = element_rect(fill = "#161b22", colour = NA),
+    strip.text       = element_text(colour = "grey90", face = "bold"),
+    plot.title       = element_text(colour = "white", face = "bold", size = 18),
+    plot.subtitle    = element_text(colour = "grey80"),
+    legend.background = element_rect(fill = "#0d1117"),
+    legend.key       = element_rect(fill = "#0d1117"),
+    legend.text      = element_text(colour = "grey85"),
+    legend.title     = element_text(colour = "white")
+  )
+
+ggplot(
+  brics_energy %>% filter(!is.na(renewables_share_energy)),
+  aes(x = year, y = renewables_share_energy, colour = country)
+) +
+  geom_line(linewidth = 1.3, alpha = 0.9) +
+  scale_colour_manual(values = c(
+    "Brazil"        = "#00e676",  # neon green
+    "Russia"        = "#ff7043",  # orange
+    "India"         = "#ffde59",  # yellow
+    "China"         = "#42a5f5",  # blue
+    "South Africa"  = "#ab47bc"   # purple
+  )) +
+  labs(
+    title    = "Renewables Share of Primary Energy – BRICS",
+    subtitle = "Brazil stands out with a consistently higher renewable share",
+    x        = "Year",
+    y        = "Renewables share of energy (%)",
+    colour   = "Country"
+  ) +
+  theme_brics_dark
+
+#  Heatmap: renewables by decade & country -----------------------------
+
+ggplot(
+  brics_decade,
+  aes(
+    x    = factor(decade),
+    y    = country,
+    fill = renewables_share_mean
+  )
+) +
+  geom_tile(colour = "#2d333b", linewidth = 0.5) +
+  scale_fill_gradient(
+    low  = "#13293D",
+    high = "#3dfc8f",
+    name = "Avg renewables\nshare (%)"
+  ) +
+  labs(
+    title    = "BRICS Renewable Energy by Decade",
+    subtitle = "Average renewables share of primary energy by decade",
+    x        = "Decade",
+    y        = "Country"
+  ) +
+  theme_brics_dark
+
+# MAP  — BRICS Renewable Share (%) -----------------------------
+
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)  
+
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+brics_map <- world %>%
+  filter(name %in% c("Brazil", "Russia", "India", "China", "South Africa")) %>%
+  left_join(summary_latest, by = c("name" = "country"))   # <-- closed )
+
+ggplot(brics_map) +
+  geom_sf(aes(fill = renewables_share_energy), color = "grey30", size = 0.3) +
+  scale_fill_gradient(
+    low  = "#13293D",
+    high = "#3dfc8f",
+    name = "Renewables Share (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", colour = NA),
+    panel.background = element_rect(fill = "#0d1117", colour = NA),
+    panel.grid.major = element_blank(),
+    axis.text        = element_text(colour = "grey80"),
+    axis.title       = element_text(colour = "grey90"),
+    legend.background = element_rect(fill = "#0d1117"),
+    legend.text      = element_text(colour = "grey80"),
+    legend.title     = element_text(colour = "grey90"),
+    plot.title       = element_text(colour = "white", size = 18, face = "bold")
+  ) +
+  labs(
+    title    = "Renewable Energy Share (%) across BRICS",
+    subtitle = "Hydro + Wind + Solar contribution to primary energy",
+    caption  = "Source: OWID Energy Dataset"
+  )
+
+
+
+```
+
+
